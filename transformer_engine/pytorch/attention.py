@@ -1526,11 +1526,19 @@ def apply_rotary_pos_emb(
     freqs = freqs[:cur_seq_len]
     if tensor_format == "bshd":
         freqs = freqs.transpose(0, 1)  # [seq, 1, 1, dim] -> [1, seq, 1, dim]
-    # cos/sin first then dtype conversion for better precision
-    cos_ = torch.cos(freqs).to(t.dtype)
-    sin_ = torch.sin(freqs).to(t.dtype)
 
-    rot_dim = freqs.shape[-1]
+    # zirui
+    if isinstance(freqs, torch.Tensor) and len(freqs.shape) == 5:
+        emb_triangle = torch.chunk(freqs, chunks=2, dim=1)
+        cos_ = torch.squeeze(emb_triangle[0], dim=1)
+        sin_ = torch.squeeze(emb_triangle[1], dim=1)
+        rot_dim = cos_.shape[-1]
+    else:
+        # cos/sin first then dtype conversion for better precision
+        cos_ = torch.cos(freqs).to(t.dtype)
+        sin_ = torch.sin(freqs).to(t.dtype)
+        rot_dim = freqs.shape[-1]
+
     # ideally t_pass is empty so rotary pos embedding is applied to all tensor t
     t, t_pass = t[..., :rot_dim], t[..., rot_dim:]
 
@@ -4723,8 +4731,10 @@ class MultiheadAttention(torch.nn.Module):
                 q_pos_emb = q_pos_emb[sequence_start:sequence_end, ...]
                 k_pos_emb = k_pos_emb[sequence_start:sequence_end, ...]
 
-            query_layer = apply_rotary_pos_emb(query_layer, q_pos_emb, self.qkv_format, fused=True)
-            key_layer = apply_rotary_pos_emb(key_layer, k_pos_emb, self.qkv_format, fused=True)
+            # zirui, disable fused rope
+            fused = True if os.getenv('FUSED_ROPE') == 1 else False
+            query_layer = apply_rotary_pos_emb(query_layer, q_pos_emb, self.qkv_format, fused=fused)
+            key_layer = apply_rotary_pos_emb(key_layer, k_pos_emb, self.qkv_format, fused=fused)
 
         # ===========================
         # Core attention computation

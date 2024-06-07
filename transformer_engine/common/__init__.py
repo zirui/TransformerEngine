@@ -8,6 +8,7 @@ import os
 import platform
 import subprocess
 import sys
+from . import recipe
 
 
 def get_te_path():
